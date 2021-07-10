@@ -1,11 +1,10 @@
 <script>
   import Carousel from '../Carousel.svelte'
-  import { NEXT } from '../../../direction'
 
   /**
    * CSS animation timing function
    */
-  export let timingFunction = "ease-in-out";
+  export let timingFunction = 'ease-in-out';
 
   /**
    * Enable Next/Previos arrows
@@ -33,19 +32,24 @@
   export let autoplay = false
 
   /**
-   * Auto play change interval
+   * Autoplay change interval
    */
   export let autoplayDuration = 3000
 
   /**
-   * Auto play change direction ('next', 'prev')
+   * Autoplay change direction ('next', 'prev')
    */
-  export let autoplayDirection = NEXT
+  export let autoplayDirection = 'next'
   
   /**
    * Pause autoplay on focus
    */
   export let pauseOnFocus = false
+
+  /**
+   * Show autoplay duration progress indicator
+   */
+  export let autoplayProgressVisible = false
 
   /**
    * Current page indicator dots
@@ -83,6 +87,7 @@
     {autoplayDuration}
     {autoplayDirection}
     {pauseOnFocus}
+    {autoplayProgressVisible}
     {dots}
     on:pageChange={
       event => console.log(`Current page index: ${event.detail}`)
@@ -108,6 +113,7 @@
     {autoplayDuration}
     {autoplayDirection}
     {pauseOnFocus}
+    {autoplayProgressVisible}
     {dots}
   >
     {#each colors2 as { color, text } (color)}

@@ -3,6 +3,7 @@
   import { createStore } from '../../store'
   import Dots from '../Dots/Dots.svelte'
   import Arrow from '../Arrow/Arrow.svelte'
+  import Progress from '../Progress/Progress.svelte'
   import { NEXT, PREV } from '../../direction'
   import { swipeable } from '../../actions/swipeable'
   import { focusable } from '../../actions/focusable'
@@ -12,12 +13,30 @@
   } from '../../utils/event'
   import { getAdjacentIndexes } from '../../utils/page'
   import { get } from '../../utils/object'
+  import { ProgressManager } from '../../utils/ProgressManager.js'
 
   const dispatch = createEventDispatcher()
 
+  const autoplayDirectionFnDescription = {
+    [NEXT]: () => {
+      progressManager.start(() => {
+        showNextPage()
+      })
+    },
+    [PREV]: () => {
+      progressManager.start(() => {
+        showPrevPage()
+      })
+    }
+  }
+
   const directionFnDescription = {
-    [NEXT]: showNextPage,
-    [PREV]: showPrevPage
+    [NEXT]: () => {
+      showNextPage()
+    },
+    [PREV]: () => {
+      showPrevPage()
+    }
   }
 
   /**
@@ -53,19 +72,24 @@
   export let autoplay = false
 
   /**
-   * Auto play change interval (ms)
+   * Autoplay change interval (ms)
    */
   export let autoplayDuration = 3000
 
   /**
-   * Auto play change direction ('next', 'prev')
+   * Autoplay change direction ('next', 'prev')
    */
   export let autoplayDirection = NEXT
 
   /**
    * Pause autoplay on focus
    */
-  export let pauseOnFocus = false
+  export let pauseOnFocus = true
+
+  /**
+   * Show autoplay duration progress indicator
+   */
+  export let autoplayProgressVisible = false
 
   /**
    * Current page indicator dots
@@ -107,13 +131,20 @@
   let pagesElement
   let focused = false
 
-  let autoplayInterval = null
+  let progressValue
+  const progressManager = new ProgressManager({
+    autoplayDuration,
+    onProgressValueChange: (value) => {
+      progressValue = 1 - value
+    }
+  })
+
   $: {
     if (pauseOnFocus) {
       if (focused) {
-        clearAutoplay()
+        progressManager.pause()
       } else {
-        applyAutoplay()
+        progressManager.resume()
       }
     }
   }
@@ -134,19 +165,6 @@
 
     offsetPage(false)
   }
-
-  function applyAutoplay() {
-    if (autoplay && !autoplayInterval) {
-      autoplayInterval = setInterval(() => {
-        directionFnDescription[autoplayDirection]()
-      }, autoplayDuration)
-    }
-  }
-
-  function clearAutoplay() {
-    clearInterval(autoplayInterval)
-    autoplayInterval = null
-  }
   
   function addClones() {
     const first = pagesElement.children[0]
@@ -155,13 +173,31 @@
     pagesElement.append(first.cloneNode(true))
   }
 
+  function applyAutoplay() {
+    // prevent progress change if not infinite for first and last page
+    if (
+      !infinite && (
+        (autoplayDirection === NEXT && currentPageIndex === pagesCount - 1) || 
+        (autoplayDirection === PREV && currentPageIndex === 0)
+      )
+    ) {
+      progressManager.reset()
+      return
+    }
+    if (autoplay) {
+      autoplayDirectionFnDescription[autoplayDirection]()
+    }
+  }
+
   let cleanupFns = []
+
   onMount(() => {
     (async () => {
       await tick()
       cleanupFns.push(store.subscribe(value => {
         currentPageIndex = value.currentPageIndex
       }))
+      cleanupFns.push(() => progressManager.reset())
       if (pagesElement && pageWindowElement) {
         // load first and last child to clone them 
         loaded = [0, pagesElement.children.length - 1]
@@ -171,13 +207,14 @@
         store.init(initialPageIndex + Number(infinite))
         applyPageSizes()
       }
+
       applyAutoplay()
+
       addResizeEventListener(applyPageSizes)
     })()
   })
 
   onDestroy(() => {
-    clearAutoplay()
     removeResizeEventListener(applyPageSizes)
     cleanupFns.filter(fn => fn && typeof fn === 'function').forEach(fn => fn())
   })
@@ -191,9 +228,9 @@
     offset = -currentPageIndex * pageWidth
     if (infinite) {
       if (currentPageIndex === 0) {
-        showPage(pagesCount - 2, { offsetDelayMs: duration, animated: false })
+        showPage(pagesCount - 2, { offsetDelayMs: _duration, animated: false })
       } else if (currentPageIndex === pagesCount - 1) {
-        showPage(1, { offsetDelayMs: duration, animated: false })
+        showPage(1, { offsetDelayMs: _duration, animated: false })
       }
     }
   }
@@ -207,12 +244,13 @@
     disabled = true
     setTimeout(() => {
       disabled = false
+      applyAutoplay()
     }, animated ? duration : 0)
   }
 
   function showPage(pageIndex, options) {
     const animated = get(options, 'animated', true)
-    const offsetDelayMs = get(options, 'offsetDelayMs', true)
+    const offsetDelayMs = get(options, 'offsetDelayMs', 0)
     safeChangePage(() => {
       store.moveToPage({ pageIndex, pagesCount })
       setTimeout(() => {
@@ -287,7 +325,12 @@
         bind:this={pagesElement}
       >
         <slot {loaded}></slot>
-      </div>    
+      </div>
+      {#if autoplayProgressVisible}
+        <div class="sc-carousel-progress__container">
+          <Progress value={progressValue} />
+        </div>
+      {/if}
     </div>
     {#if arrows}
       <slot name="next" {showNextPage}>
@@ -318,6 +361,14 @@
 </div>
 
 <style>
+  :root {
+    --sc-arrow-size: 2px;
+
+    --sc-color-rgb-light-50p: rgba(93, 93, 93, 0.5);
+
+    --sc-color-hex-dark-50p: rgba(30, 30, 30, 0.5);
+    --sc-color-hex-dark: #1e1e1e;
+  }
   .sc-carousel__carousel-container {
     display: flex;
     width: 100%;
@@ -334,6 +385,7 @@
     display: flex;
     overflow: hidden;
     box-sizing: border-box;
+    position: relative;
   }
   .sc-carousel__pages-container {
     width: 100%;
@@ -346,5 +398,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  .sc-carousel-progress__container {
+    width: 100%;
+    height: 5px;
+    background-color: var(--sc-color-rgb-light-50p);
+    position: absolute;
+    bottom: 0;
   }
 </style>
